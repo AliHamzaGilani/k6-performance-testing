@@ -1,0 +1,47 @@
+name: k6 Performance Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '0 4 * * *' # nightly load test
+  workflow_dispatch:
+    inputs:
+      test:
+        description: Test to run
+        type: choice
+        options: [smoke, load, spike]
+        default: load
+
+jobs:
+  k6:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: grafana/setup-k6-action@v1
+
+      - name: Pick the test
+        id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "test=${{ inputs.test }}" >> "$GITHUB_OUTPUT"
+          elif [ "${{ github.event_name }}" = "schedule" ]; then
+            echo "test=load" >> "$GITHUB_OUTPUT"
+          else
+            echo "test=smoke" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Run k6 (${{ steps.pick.outputs.test }})
+        run: |
+          mkdir -p results
+          k6 run tests/${{ steps.pick.outputs.test }}.js --summary-export=results/summary.json
+
+      - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() }}
+        with:
+          name: k6-results
+          path: results/
+          retention-days: 14
